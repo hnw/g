@@ -2,15 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"os"
+
 	"golang.org/x/oauth2"
 	pb "google.golang.org/genproto/googleapis/assistant/embedded/v1alpha2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
 	"gopkg.in/yaml.v2"
-	"io"
-	"io/ioutil"
-	"os"
 )
 
 type Config struct {
@@ -18,15 +20,14 @@ type Config struct {
 		ClientID     string   `yaml:"client_id"`
 		ClientSecret string   `yaml:"client_secret"`
 		Scopes       []string `yaml:"scopes"`
-		AuthURL      string   `yaml:"auth_url"`
 		TokenURL     string   `yaml:"token_url"`
 		RefreshToken string   `yaml:"refresh_token"`
 	}
 
 	Device struct {
 		Endpoint      string `yaml:"endpoint"`
-		DeviceId      string `yaml:"device_id"`
-		DeviceModelId string `yaml:"device_model_id"`
+		DeviceID      string `yaml:"device_id"`
+		DeviceModelID string `yaml:"device_model_id"`
 		LanguageCode  string `yaml:"language_code"`
 	}
 }
@@ -51,7 +52,6 @@ func main() {
 		ClientSecret: config.OAuth.ClientSecret,
 		Scopes:       config.OAuth.Scopes,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  config.OAuth.AuthURL,
 			TokenURL: config.OAuth.TokenURL,
 		},
 	}
@@ -76,6 +76,7 @@ func main() {
 	if conn_err != nil {
 		panic(conn_err)
 	}
+	defer conn.Close()
 
 	// Create new Google Assistant Client
 	client := pb.NewEmbeddedAssistantClient(conn)
@@ -107,8 +108,8 @@ func main() {
 					VolumePercentage: 0,
 				},
 				DeviceConfig: &pb.DeviceConfig{
-					DeviceId:      config.Device.DeviceId,
-					DeviceModelId: config.Device.DeviceModelId,
+					DeviceId:      config.Device.DeviceID,
+					DeviceModelId: config.Device.DeviceModelID,
 				},
 				DialogStateIn: &pb.DialogStateIn{
 					LanguageCode:      config.Device.LanguageCode,
@@ -128,7 +129,10 @@ func main() {
 			panic(res_err)
 		}
 		if res.DialogStateOut != nil {
-			println(res.DialogStateOut.SupplementalDisplayText)
+			t := res.DialogStateOut.SupplementalDisplayText
+			if t != "" {
+				println(t)
+			}
 		}
 	}
 }
