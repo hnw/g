@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
+	_ "embed"
 	"io"
-	"io/ioutil"
 	"os"
 
 	"golang.org/x/oauth2"
@@ -32,16 +31,13 @@ type Config struct {
 	}
 }
 
-func main() {
-	// Read Configuration
-	data, config_file_err := ioutil.ReadFile("./config.yaml")
-	if config_file_err != nil {
-		panic(config_file_err)
-	}
+//go:embed config.yaml
+var confdata []byte
 
+func main() {
 	// Parse Configuration
 	config := Config{}
-	yaml_err := yaml.Unmarshal(data, &config)
+	yaml_err := yaml.Unmarshal(confdata, &config)
 	if yaml_err != nil {
 		panic(yaml_err)
 	}
