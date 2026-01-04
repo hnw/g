@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"fmt"
 	"io"
+	"log"
+	"net/http"
 	"os"
 
 	"golang.org/x/oauth2"
@@ -11,88 +13,118 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
-	"gopkg.in/yaml.v2"
 )
 
+// Config 構造体（環境変数用にフラット化）
 type Config struct {
-	OAuth struct {
-		ClientID     string   `yaml:"client_id"`
-		ClientSecret string   `yaml:"client_secret"`
-		Scopes       []string `yaml:"scopes"`
-		TokenURL     string   `yaml:"token_url"`
-		RefreshToken string   `yaml:"refresh_token"`
-	}
-
-	Device struct {
-		Endpoint      string `yaml:"endpoint"`
-		DeviceID      string `yaml:"device_id"`
-		DeviceModelID string `yaml:"device_model_id"`
-		LanguageCode  string `yaml:"language_code"`
-	}
+	ClientID     string
+	ClientSecret string
+	RefreshToken string
+	DeviceID     string
+	ModelID      string
+	Language     string
 }
 
-//go:embed config.yaml
-var confdata []byte
+type AssistantServer struct {
+	client pb.EmbeddedAssistantClient
+	config Config
+}
 
 func main() {
-	// Parse Configuration
-	config := Config{}
-	yaml_err := yaml.Unmarshal(confdata, &config)
-	if yaml_err != nil {
-		panic(yaml_err)
+	// 1. 環境変数からの設定読み込み
+	config := Config{
+		ClientID:     os.Getenv("GA_CLIENT_ID"),
+		ClientSecret: os.Getenv("GA_CLIENT_SECRET"),
+		RefreshToken: os.Getenv("GA_REFRESH_TOKEN"),
+		DeviceID:     getEnv("GA_DEVICE_ID", "default"),
+		ModelID:      getEnv("GA_DEVICE_MODEL_ID", "default"),
+		Language:     getEnv("GA_LANGUAGE", "ja-JP"),
 	}
 
-	// Setup Oauth
-	oauth_conf := &oauth2.Config{
-		ClientID:     config.OAuth.ClientID,
-		ClientSecret: config.OAuth.ClientSecret,
-		Scopes:       config.OAuth.Scopes,
+	// 必須項目のチェック
+	if config.ClientID == "" || config.ClientSecret == "" || config.RefreshToken == "" {
+		log.Fatal("Missing required environment variables: GA_CLIENT_ID, GA_CLIENT_SECRET, GA_REFRESH_TOKEN")
+	}
+
+	// 2. OAuth設定
+	oauthConf := &oauth2.Config{
+		ClientID:     config.ClientID,
+		ClientSecret: config.ClientSecret,
 		Endpoint: oauth2.Endpoint{
-			TokenURL: config.OAuth.TokenURL,
+			TokenURL: "https://accounts.google.com/o/oauth2/token",
 		},
+		Scopes: []string{"https://www.googleapis.com/auth/assistant-sdk-prototype"},
 	}
-
-	// Refresh Token
-	token_source := oauth_conf.TokenSource(context.Background(), &oauth2.Token{
-		RefreshToken: config.OAuth.RefreshToken,
+	tokenSource := oauthConf.TokenSource(context.Background(), &oauth2.Token{
+		RefreshToken: config.RefreshToken,
 	})
 
-	token, token_err := token_source.Token()
-	if token_err != nil {
-		panic(token_err)
-	}
-
-	// Connect to gRPC
-	conn, conn_err := grpc.Dial(
-		config.Device.Endpoint,
+	// 3. gRPC接続
+	conn, err := grpc.Dial(
+		"embeddedassistant.googleapis.com:443",
 		grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, "")),
-		grpc.WithPerRPCCredentials(oauth.NewOauthAccess(token)),
+		grpc.WithPerRPCCredentials(oauth.TokenSource{TokenSource: tokenSource}),
 	)
-
-	if conn_err != nil {
-		panic(conn_err)
+	if err != nil {
+		log.Fatalf("Failed to dial gRPC: %v", err)
 	}
 	defer conn.Close()
 
-	// Create new Google Assistant Client
-	client := pb.NewEmbeddedAssistantClient(conn)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start a Sessions
-	g, client_err := client.Assist(ctx)
-	if client_err != nil {
-		panic(client_err)
+	server := &AssistantServer{
+		client: pb.NewEmbeddedAssistantClient(conn),
+		config: config,
 	}
 
-	// Get text query from console
-	var text string
-	for _, piece := range os.Args[1:] {
-		text += " " + piece
+	// 4. HTTPハンドラー
+	http.HandleFunc("/", server.handleRoot)
+
+	port := getEnv("PORT", "8080")
+	log.Printf("Server listening on :%s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
+}
+
+func (s *AssistantServer) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
 	}
 
-	// Build the request and send it to Google Assistant Service
-	g.Send(&pb.AssistRequest{
+	// リクエストボディの読み込み (io.ReadAllを使用)
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	queryText := string(bodyBytes)
+
+	if queryText == "" {
+		http.Error(w, "Empty query", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("Query: %s", queryText)
+
+	// Assistantへのリクエスト実行 (リクエストのContextを伝搬)
+	responseText, err := s.sendToAssistant(r.Context(), queryText)
+	if err != nil {
+		log.Printf("Assistant Error: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(responseText))
+}
+
+func (s *AssistantServer) sendToAssistant(ctx context.Context, text string) (string, error) {
+	stream, err := s.client.Assist(ctx)
+	if err != nil {
+		return "", fmt.Errorf("stream creation failed: %v", err)
+	}
+
+	req := &pb.AssistRequest{
 		Type: &pb.AssistRequest_Config{
 			Config: &pb.AssistConfig{
 				Type: &pb.AssistConfig_TextQuery{
@@ -104,31 +136,42 @@ func main() {
 					VolumePercentage: 0,
 				},
 				DeviceConfig: &pb.DeviceConfig{
-					DeviceId:      config.Device.DeviceID,
-					DeviceModelId: config.Device.DeviceModelID,
+					DeviceId:      s.config.DeviceID,
+					DeviceModelId: s.config.ModelID,
 				},
 				DialogStateIn: &pb.DialogStateIn{
-					LanguageCode:      config.Device.LanguageCode,
+					LanguageCode:      s.config.Language,
 					IsNewConversation: true,
 				},
 			},
 		},
-	})
+	}
 
-	// Wait for response and print it to the console
+	if err := stream.Send(req); err != nil {
+		return "", fmt.Errorf("send request failed: %v", err)
+	}
+
+	var responseBuilder string
 	for {
-		res, res_err := g.Recv()
-		if res_err == io.EOF {
+		res, err := stream.Recv()
+		if err == io.EOF {
 			break
 		}
-		if res_err != nil {
-			panic(res_err)
+		if err != nil {
+			return "", fmt.Errorf("receive failed: %v", err)
 		}
+
 		if res.DialogStateOut != nil {
-			t := res.DialogStateOut.SupplementalDisplayText
-			if t != "" {
-				println(t)
-			}
+			responseBuilder += res.DialogStateOut.SupplementalDisplayText
 		}
 	}
+
+	return responseBuilder, nil
+}
+
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }
