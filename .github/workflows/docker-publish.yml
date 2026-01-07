@@ -3,7 +3,7 @@ name: Build and Push Docker Image
 on:
   push:
     tags:
-      - 'v*' # v1.0.0 や v0.1.0-alpha などのタグがPushされた時に起動
+      - 'v*'
 
 env:
   REGISTRY: ghcr.io
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # GHCRへの書き込み権限
+      packages: write
 
     steps:
       - name: Checkout repository
@@ -29,6 +29,25 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Go Build
+        uses: actions/cache@v4
+        id: go-build-cache
+        with:
+          path: go-build-cache
+          key: ${{ runner.os }}-go-build-cache-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-build-cache-
+
+      - name: Inject BuildKit Cache
+        uses: reproducible-containers/buildkit-cache-dance@v3
+        with:
+          cache-map: |
+            {
+              "go-build-cache": "/root/.cache/go-build",
+              "go-mod-cache": "/go/pkg/mod"
+            }
+          skip-extraction: ${{ steps.go-build-cache.outputs.cache-hit }}
 
       - name: Extract Docker metadata
         id: meta
@@ -48,5 +67,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=build-cache
-          cache-to: type=gha,mode=min,scope=build-cache
