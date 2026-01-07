@@ -101,6 +101,7 @@ func (s *AssistantServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// リクエストボディの読み込み (io.ReadAllを使用)
+	r.Body = http.MaxBytesReader(w, r.Body, 1048576)
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
@@ -188,3 +189,4 @@ func getEnv(key, fallback string) string {
 	}
 	return fallback
 }
+//foo3
