@@ -44,11 +44,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          # Goのクロスコンパイルを活かし、3つのアーキテクチャを並列ビルド
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # GitHub Actionsのキャッシュを利用して高速化
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=build-cache
+          cache-to: type=gha,mode=min,scope=build-cache
