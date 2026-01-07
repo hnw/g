@@ -1,6 +1,6 @@
 module github.com/hnw/g
 
-go 1.16
+go 1.25
 
 require (
 	golang.org/x/oauth2 v0.0.0-20210810183815-faf39c7919d5
