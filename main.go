@@ -7,12 +7,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"golang.org/x/oauth2"
 	pb "google.golang.org/genproto/googleapis/assistant/embedded/v1alpha2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
+	"google.golang.org/grpc/keepalive"
 )
 
 // Config 構造体（環境変数用にフラット化）
@@ -59,11 +61,18 @@ func main() {
 		RefreshToken: config.RefreshToken,
 	})
 
+	kacp := keepalive.ClientParameters{
+		Time:                30 * time.Second,
+		Timeout:             time.Second,
+		PermitWithoutStream: true,
+	}
+
 	// 3. gRPC接続
 	conn, err := grpc.Dial(
 		"embeddedassistant.googleapis.com:443",
 		grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, "")),
 		grpc.WithPerRPCCredentials(oauth.TokenSource{TokenSource: tokenSource}),
+		grpc.WithKeepaliveParams(kacp),
 	)
 	if err != nil {
 		log.Fatalf("Failed to dial gRPC: %v", err)
@@ -150,6 +159,10 @@ func (s *AssistantServer) sendToAssistant(ctx context.Context, text string) (str
 	if err := stream.Send(req); err != nil {
 		return "", fmt.Errorf("send request failed: %v", err)
 	}
+
+	if err := stream.CloseSend(); err != nil {
+        return "", fmt.Errorf("close send failed: %v", err)
+    }
 
 	var responseBuilder string
 	for {
