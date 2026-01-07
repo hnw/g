@@ -1,22 +1,25 @@
-# [Dockerfile]
-FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 WORKDIR /app
 
 ARG TARGETOS
 ARG TARGETARCH
-ARG TARGETVARIANT
+
+ENV CGO_ENABLED=0
+ENV GOCACHE=/root/.cache/go-build
+ENV GOMODCACHE=/go/pkg/mod
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -ldflags="-s -w" -o g ./main.go
 
-RUN if [ "$TARGETARCH" = "arm" ]; then \
-        export GOARM=${TARGETVARIANT#v}; \
-    fi; \
-    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o g ./main.go
+FROM gcr.io/distroless/static:nonroot
 
-FROM alpine:latest
-RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/g /usr/local/bin/g
+
 ENTRYPOINT ["g"]
