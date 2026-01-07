@@ -7,7 +7,6 @@ credentials.json
 *.yaml
 *.yml
 
-bin/
 *.exe
 *.test
 *.prof
