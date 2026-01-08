@@ -1,13 +1,10 @@
-name: Build and Push Docker Image
+name: Build and Push Image with ko
 
 on:
   push:
-    branches:
-      - 'master'
-    tags:
-      - 'v*'
-    paths:
-      - 'go.mod'
+    tags: [ 'v*' ]
+    branches: [ 'master' ]
+    path: [ 'go.mod' ]
 
 env:
   REGISTRY: ghcr.io
@@ -24,63 +21,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          buildkitd-config-inline: |
-            [worker.oci]
-              max-parallelism = 4
-            [[worker.oci.gcpolicy]]
-              keepBytes = 10737418240
-              keepDuration = 604800
-              filters = ["type==source.local", "type==exec.cachemount", "type==source.git.checkout"]
-            [[worker.oci.gcpolicy]]
-              all = true
-              keepBytes = 53687091200
+          go-version: '1.25'
+          cache: true
 
-      - name: Log in to the Container registry
+      - name: Install ko
+        uses: ko-build/setup-ko@v0.6
+        with:
+          version: v0.15.4
+
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Go Build
-        uses: actions/cache@v4
-        id: go-build-cache
-        with:
-          path: |
-            go-build-cache
-            go-mod-cache
-          key: ${{ runner.os }}-go-build-cache-v2-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-build-cache-v2-
-
-      - name: Inject BuildKit Cache
-        uses: reproducible-containers/buildkit-cache-dance@v3
-        with:
-          cache-map: |
-            {
-              "go-build-cache": "/root/.cache/go-build",
-              "go-mod-cache": "/go/pkg/mod"
-            }
-          skip-extraction: false            
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: ${{ startsWith(github.ref, 'refs/tags/') }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Build and Push
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAGS="${{ github.ref_name }},latest"
+          else
+            TAGS="latest"
+          fi
+          ko build . --bare \
+            --image-label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --tags=$TAGS \
+            --platform=linux/amd64,linux/arm64,linux/arm/v7
+        env:
+          KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          CGO_ENABLED: 0
