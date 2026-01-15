@@ -1,3 +1,5 @@
+#defaultBaseImage: gcr.io/distroless/static:nonroot
+defaultBaseImage: alpine
 defaultLdflags:
   - -s
   - -w
