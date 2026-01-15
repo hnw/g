@@ -1,3 +1,5 @@
+#defaultBaseImage: gcr.io/distroless/static:nonroot
+defaultBaseImage: scratch
 defaultLdflags:
   - -s
   - -w
