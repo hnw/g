@@ -3,8 +3,8 @@ name: Build and Push Image with ko
 on:
   push:
     tags: [ 'v*' ]
-    branches: [ 'master' ]
-    path: [ 'go.mod' ]
+    branches: [ 'main' ]
+    paths: [ 'go.mod', '**.go' ]
 
 env:
   REGISTRY: ghcr.io
@@ -29,8 +29,6 @@ jobs:
 
       - name: Install ko
         uses: ko-build/setup-ko@v0.6
-        with:
-          version: v0.15.4
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -42,14 +40,13 @@ jobs:
       - name: Build and Push
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            TAGS="${{ github.ref_name }},latest"
+            ko build . $KO_FLAGS $IMAGE_LBL --tags=${{ github.ref_name }},latest
           else
-            TAGS="latest"
+            ko build . $KO_FLAGS --push=false
           fi
-          ko build . --bare \
-            --image-label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
-            --tags=$TAGS \
-            --platform=linux/amd64,linux/arm64,linux/arm/v7
         env:
+          KO_DEFAULTBASEIMAGE: scratch
+          KO_FLAGS: "--bare --platform=linux/amd64,linux/arm64,linux/arm"
+          IMAGE_LBL: "--image-label org.opencontainers.image.source=https://github.com/${{ github.repository }}"
           KO_DOCKER_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           CGO_ENABLED: 0
