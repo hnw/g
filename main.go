@@ -1,3 +1,4 @@
+// Package main implements a Google Assistant gRPC client server.
 package main
 
 import (
@@ -45,7 +46,9 @@ func main() {
 
 	// 必須項目のチェック
 	if config.ClientID == "" || config.ClientSecret == "" || config.RefreshToken == "" {
-		log.Fatal("Missing required environment variables: GA_CLIENT_ID, GA_CLIENT_SECRET, GA_REFRESH_TOKEN")
+		log.Fatal(
+			"Missing required environment variables: GA_CLIENT_ID, GA_CLIENT_SECRET, GA_REFRESH_TOKEN",
+		)
 	}
 
 	// 2. OAuth設定
@@ -68,7 +71,7 @@ func main() {
 	}
 
 	// 3. gRPC接続
-	conn, err := grpc.Dial(
+	conn, err := grpc.NewClient(
 		"embeddedassistant.googleapis.com:443",
 		grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, "")),
 		grpc.WithPerRPCCredentials(oauth.TokenSource{TokenSource: tokenSource}),
@@ -77,7 +80,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to dial gRPC: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("Failed to close gRPC connection: %v", err)
+		}
+	}()
 
 	server := &AssistantServer{
 		client: pb.NewEmbeddedAssistantClient(conn),
@@ -89,7 +96,16 @@ func main() {
 
 	port := getEnv("PORT", "8080")
 	log.Printf("Server listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	httpServer := &http.Server{
+		Addr:              ":" + port,
+		Handler:           nil, // DefaultServeMuxを使用
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
@@ -125,7 +141,9 @@ func (s *AssistantServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte(responseText))
+	if _, err := w.Write([]byte(responseText)); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
 }
 
 func (s *AssistantServer) sendToAssistant(ctx context.Context, text string) (string, error) {
@@ -162,8 +180,8 @@ func (s *AssistantServer) sendToAssistant(ctx context.Context, text string) (str
 	}
 
 	if err := stream.CloseSend(); err != nil {
-        return "", fmt.Errorf("close send failed: %v", err)
-    }
+		return "", fmt.Errorf("close send failed: %v", err)
+	}
 
 	var responseBuilder string
 	for {
