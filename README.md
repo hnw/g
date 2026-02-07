@@ -1,87 +1,99 @@
-# g: The Google Assistant command
+# gaproxy: Google Assistant Command Proxy
 
-![](https://i.imgur.com/tHhGezw.gif)
+`gaproxy` is a lightweight HTTP proxy server that acts as a gateway to the [Google Assistant Service (gRPC) API](https://developers.google.com/assistant/sdk/reference/rpc/google.assistant.embedded.v1alpha2).
 
-Run queries against Google Assistant on every shell 🎉
+It accepts HTTP POST requests containing text commands (e.g., "Turn on the light"), forwards them to Google Assistant via gRPC, and returns the result text.
 
-This is one of my weekend-research projects. It uses the official [Google Assistant Embedded gRPC API](https://developers.google.com/assistant/sdk/reference/rpc/google.assistant.embedded.v1alpha2) and its [Go Bindings](https://godoc.org/google.golang.org/genproto/googleapis/assistant/embedded/v1alpha2)
+> [!WARNING]
+> **Legacy API / Credential Requirement**
+> This project relies on the **Google Assistant SDK (Embedded Assistant API)**.
+> New registrations for this API are deprecated and significantly restricted by Google.
+> **You must already possess valid OAuth2 credentials (`client_id`, `client_secret`, `refresh_token`) and a registered `device_model_id` to use this tool.**
+> We cannot provide support for obtaining new credentials.
 
-Note: the software might break and there is no guarantee it will even work, because the APIs its based on are still **in alpha**. Use with caution
+## Use Case
 
-With some little changes to the code-base, you will also be able to output HTML:
+This tool is designed for **Headless Smart Home Control**.
+It is not a conversational chatbot. It is intended to trigger Google Assistant actions (like controlling lights, checking weather, or broadcasting messages) from systems that cannot run the heavy Assistant SDK natively.
 
-![](https://i.imgur.com/BqmAZnD.png)
-![](https://i.imgur.com/Tau7mqf.jpg)
-![](https://i.imgur.com/7dX2vKT.jpg)
-![](https://i.imgur.com/IES145i.jpg)
+## Usage
 
-Ps. The code is not intended for the commercial use.
+### 1. Prerequisites
 
-## Installation
+You need the following credentials obtained from your Google Cloud / Actions Console project:
 
-- Visit [Actions on Google](https://console.actions.google.com)
+* **OAuth2 Client ID**
+* **OAuth2 Client Secret**
+* **OAuth2 Refresh Token** (authorized for `https://www.googleapis.com/auth/assistant-sdk-prototype`)
+* **Device Model ID** (registered in the Actions Console)
+* **Device ID** (any unique string)
 
-![](https://i.imgur.com/9cgC73I.png)
+### 2. Running with Docker
 
-- Press on "New project" and select your Google Cloud Project (or make a new one) and commit with "Create project"
+The application is configured entirely via environment variables.
 
-![](https://i.imgur.com/IFKW2Eh.png)
-
-- Scroll down and press on "Device registration"
-
-![](https://i.imgur.com/CRYc8B7.png)
-
-- Then, press on "REGISTER MODEL"
-
-![](https://i.imgur.com/NrksmWu.png)
-
-- Enter the required info and press "REGISTER MODEL"
-
-![](https://i.imgur.com/KLISzKn.png)
-
-
-- Press on "Download OAuth 2.0 credentials"
-
-![](https://i.imgur.com/atBhGFn.png)
-
-- You can skip the device traits part
-- Make sure you have [Python](https://www.python.org) installed
-- Install the google-auth-oauthlib tool `pip install --upgrade "google-auth-oauthlib[tool]"`
-- Run the tool
-
-```sh
-google-oauthlib-tool --client-secrets <PATH TO YOUR OAUTH2 CREDENTIALS> \
-                     --credentials credentials.json \
-                     --scope https://www.googleapis.com/auth/assistant-sdk-prototype \
-                     --save
+```bash
+docker run -d -p 8080:8080 \
+  -e GAPROXY_CLIENT_ID="your-client-id" \
+  -e GAPROXY_CLIENT_SECRET="your-client-secret" \
+  -e GAPROXY_REFRESH_TOKEN="your-refresh-token" \
+  -e GAPROXY_DEVICE_ID="default" \
+  -e GAPROXY_DEVICE_MODEL_ID="default" \
+  -e GAPROXY_LANGUAGE_CODE="en-US" \
+  ghcr.io/hnw/gaproxy:latest
 ```
 
-- Sign in with Google and grant the rights, and you should see the file `credentials.json` where you ran the command
-- Download `g` for your OS from the [Releases Page](https://github.com/mishushakov/g/releases)
-- Create a new file, called `config.yaml` and populate it with the contents of your device & oauth credentials:
+Example `docker-compose.yml`:
 
 ```yaml
-oauth: # OAuth Configuration
-  client_id: <CLIENT_ID> # OAuth Client ID
-  client_secret: <CLIENT_SECRET> # OAuth Client Secret
-  scopes: # OAuth scopes
-    - https://www.googleapis.com/auth/assistant-sdk-prototype
-  auth_url: https://accounts.google.com/o/oauth2/auth # OAuth Auth URL
-  token_url: https://accounts.google.com/o/oauth2/token # OAuth Token URL
-  refresh_token: <REFRESH_TOKEN> # OAuth Refresh Token
-device: # Device Configuration
-  endpoint: embeddedassistant.googleapis.com:443 # Service Endpoint
-  device_id: default # Device ID
-  device_model_id: default # Device Model ID
-  language_code: en-US # Language Code
+services:
+  gaproxy:
+    image: ghcr.io/hnw/gaproxy:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - GAPROXY_CLIENT_ID=${GAPROXY_CLIENT_ID}
+      - GAPROXY_CLIENT_SECRET=${GAPROXY_CLIENT_SECRET}
+      - GAPROXY_REFRESH_TOKEN=${GAPROXY_REFRESH_TOKEN}
+      - GAPROXY_DEVICE_ID=default
+      - GAPROXY_DEVICE_MODEL_ID=default
+      - GAPROXY_LANGUAGE_CODE=en-US
+    restart: always
 ```
 
-- Run the `g <query>` command
-- Profit
+### 3. Sending Commands
 
-![](https://i.imgur.com/mbcKtEs.png)
+Send a text command via HTTP POST. The command is treated as a "New Conversation" every time (context is not preserved).
 
-## Development
+**Example: Control devices**
 
-- Get [Go](https://golang.org/dl/)
-- Build with the `build.sh` script
+```bash
+curl -X POST -d "Turn on the light" http://localhost:8080
+```
+
+**Example: Broadcast**
+
+```bash
+curl -X POST -d "Broadcast breakfast is ready" http://localhost:8080
+```
+
+## Configuration
+
+| Variable | Description | Required | Default |
+| --- | --- | --- | --- |
+| `GAPROXY_CLIENT_ID` | OAuth2 Client ID | ✅ | - |
+| `GAPROXY_CLIENT_SECRET` | OAuth2 Client Secret | ✅ | - |
+| `GAPROXY_REFRESH_TOKEN` | Authorized Refresh Token | ✅ | - |
+| `GAPROXY_DEVICE_MODEL_ID` | Registered Device Model ID | ❌ | `default` |
+| `GAPROXY_DEVICE_ID` | Unique ID for this instance | ❌ | `default` |
+| `GAPROXY_LANGUAGE_CODE` | Language code (e.g., `en-US`, `ja-JP`) | ❌ | `en-US` |
+| `PORT` | HTTP Server listening port | ❌ | `8080` |
+
+## Troubleshooting
+
+* **Broadcast not working:** If the "broadcast" command doesn't work, ensure your device (represented by the Model ID) is added to a "Home" in the Google Home app.
+* **Changing Language:** The language setting is fixed at container startup. If you want to send English commands, you must set `GAPROXY_LANGUAGE_CODE=en-US`.
+
+## License
+
+Apache License 2.0

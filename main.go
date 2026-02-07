@@ -36,21 +36,20 @@ type AssistantServer struct {
 func main() {
 	// 1. 環境変数からの設定読み込み
 	config := Config{
-		ClientID:     os.Getenv("GA_CLIENT_ID"),
-		ClientSecret: os.Getenv("GA_CLIENT_SECRET"),
-		RefreshToken: os.Getenv("GA_REFRESH_TOKEN"),
-		DeviceID:     getEnv("GA_DEVICE_ID", "default"),
-		ModelID:      getEnv("GA_DEVICE_MODEL_ID", "default"),
-		Language:     getEnv("GA_LANGUAGE", "ja-JP"),
+		ClientID:     os.Getenv("GAPROXY_CLIENT_ID"),
+		ClientSecret: os.Getenv("GAPROXY_CLIENT_SECRET"),
+		RefreshToken: os.Getenv("GAPROXY_REFRESH_TOKEN"),
+		DeviceID:     getEnv("GAPROXY_DEVICE_ID", "default"),
+		ModelID:      getEnv("GAPROXY_DEVICE_MODEL_ID", "default"),
+		Language:     getEnv("GAPROXY_LANGUAGE_CODE", "en-US"),
 	}
 
 	// 必須項目のチェック
 	if config.ClientID == "" || config.ClientSecret == "" || config.RefreshToken == "" {
 		log.Fatal(
-			"Missing required environment variables: GA_CLIENT_ID, GA_CLIENT_SECRET, GA_REFRESH_TOKEN",
+			"Missing required environment variables: GAPROXY_CLIENT_ID, GAPROXY_CLIENT_SECRET, GAPROXY_REFRESH_TOKEN",
 		)
 	}
-
 	// 2. OAuth設定
 	oauthConf := &oauth2.Config{
 		ClientID:     config.ClientID,

@@ -1,4 +1,4 @@
-module github.com/hnw/g
+module github.com/hnw/gaproxy
 
 go 1.25
 
