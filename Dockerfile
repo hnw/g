@@ -16,10 +16,10 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -ldflags="-s -w" -o g ./main.go
+    go build -ldflags="-s -w" -o gaproxy ./main.go
 
 FROM gcr.io/distroless/static:nonroot
 
-COPY --from=builder /app/g /usr/local/bin/g
+COPY --from=builder /app/gaproxy /usr/local/bin/gaproxy
 
-ENTRYPOINT ["g"]
+ENTRYPOINT ["gaproxy"]
